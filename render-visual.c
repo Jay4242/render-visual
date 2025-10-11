@@ -53,9 +53,8 @@ static const char *circle_fs_source = "#version 330\n"
 #define FFT_SIZE (1<<13)
 
 #define RENDER_FPS 30
-#define RENDER_FACTOR 100
-#define RENDER_WIDTH (16*RENDER_FACTOR)
-#define RENDER_HEIGHT (9*RENDER_FACTOR)
+#define RENDER_WIDTH 1920
+#define RENDER_HEIGHT 1080
 
 #define COLOR_BACKGROUND              GetColor(0x151515FF)
 
@@ -128,7 +127,7 @@ FFMPEG *ffmpeg_start_rendering(const char *output_path, size_t width, size_t hei
             "-i", sound_file_path,
 
             "-c:v", "libx264",
-            "-vb", "2500k",
+            "-vb", "5000k",
             "-c:a", "aac",
             "-ab", "200k",
             "-pix_fmt", "yuv420p",
