@@ -1,2 +1,51 @@
 # render-visual
-A CLI only visualizer creator in the style of Musializer
+
+A minimal command‑line renderer extracted from the **Musializer** project. It reads an audio file, performs an FFT‑based visualisation and streams the frames to FFmpeg to produce a video file.
+
+## Dependencies (Linux)
+
+- **raylib** (development headers) – provides the graphics/audio API.  
+- **FFmpeg** – must be available in `$PATH` as the `ffmpeg` executable.  
+- X11 development libraries (`libx11-dev`, `libxcursor-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxi-dev`) – required by raylib.  
+- Standard C tool‑chain (`gcc`, `make`, `pkg-config`).
+
+Install the required packages on Debian/Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install build-essential libraylib-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev ffmpeg
+```
+
+## Build
+
+```bash
+make
+```
+
+The `Makefile` compiles `render-visual.c` into the `render-visual` executable.
+
+## Usage
+
+```bash
+./render-visual <input_audio_file> <output_video_file>
+```
+
+Example:
+
+```bash
+./render-visual song.wav song.mp4
+```
+
+The program will render the visualisation at 30 FPS, and encode the result with FFmpeg (using H.264 video and AAC audio).
+
+## Notes
+
+- The renderer is based on the Musializer codebase; see the Musializer repository for the full project.  
+- The output video resolution is fixed to 1600×900 (16:9) and can be changed by editing the `RENDER_FACTOR` macro in `render-visual.c`.  
+- If you encounter “could not write into ffmpeg pipe” errors, ensure FFmpeg is correctly installed and that you have write permissions in the current directory.
+
+- Original project: [Musializer](https://github.com/tsoding/musializer)
+
+## License
+
+The source files are released under the same license as Musializer (see the Musializer repository).
