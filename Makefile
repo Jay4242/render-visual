@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c11 -pedantic
-LDFLAGS = -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
+LDFLAGS = -lraylib -lGL -lm -lX11
 
 TARGET = render-visual
 
