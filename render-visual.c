@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <getopt.h>
 
 #include <raylib.h>
 #include <rlgl.h>
@@ -324,6 +325,17 @@ static size_t fft_analyze(float dt)
     return m;
 }
 
+static void draw_background(Rectangle boundary, float t)
+{
+    // Simple vertical gradient that cycles hue over time (more vibrant)
+    float hue = fmodf(t * 60.0f, 360.0f);
+    Color top = ColorFromHSV(hue, 0.9f, 0.6f);
+    Color bottom = ColorFromHSV(fmodf(hue + 180.0f, 360.0f), 0.9f, 0.4f);
+    DrawRectangleGradientV((int)boundary.x, (int)boundary.y,
+                           (int)boundary.width, (int)boundary.height,
+                           top, bottom);
+}
+
 static void fft_render(Rectangle boundary, size_t m)
 {
     // The width of a single bar
@@ -421,15 +433,53 @@ static void fft_push(float frame)
     r->in_raw[FFT_SIZE-1] = frame;
 }
 
+/* Print usage information */
+static void print_help(const char *progname)
+{
+    fprintf(stderr,
+        "Usage: %s [--rainbow-bg] <input_audio_file> <output_video_file>\n"
+        "\n"
+        "Options:\n"
+        "  --rainbow-bg   Enable rainbow background animation.\n"
+        "  -h, --help    Show this help message.\n",
+        progname);
+}
+
 int main(int argc, char *argv[])
 {
-    if (argc < 3) {
-        fprintf(stderr, "Usage: %s <input_audio_file> <output_video_file>\n", argv[0]);
+    bool rainbow_bg = false;
+    const char *input_audio_file = NULL;
+    const char *output_video_file = NULL;
+
+    /* Parse command‑line options */
+    static const struct option long_opts[] = {
+        {"rainbow-bg", no_argument, 0, 'r'},
+        {"help",       no_argument, 0, 'h'},
+        {0, 0, 0, 0}
+    };
+    int opt;
+    while ((opt = getopt_long(argc, argv, "rh", long_opts, NULL)) != -1) {
+        switch (opt) {
+        case 'r':
+            rainbow_bg = true;
+            break;
+        case 'h':
+            print_help(argv[0]);
+            return 0;
+        case '?':
+            fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
+            return 1;
+        }
+    }
+
+    if (optind + 2 != argc) {
+        fprintf(stderr, "Error: expected <input_audio_file> <output_video_file>\n");
+        print_help(argv[0]);
         return 1;
     }
 
-    const char *input_audio_file = argv[1];
-    const char *output_video_file = argv[2];
+    input_audio_file  = argv[optind];
+    output_video_file = argv[optind + 1];
 
     r = malloc(sizeof(*r));
     assert(r != NULL && "Buy more RAM lol");
@@ -467,6 +517,7 @@ int main(int argc, char *argv[])
     SetTraceLogLevel(LOG_WARNING);
 
     // Rendering loop
+    float bg_time = 0.0f;
     while (r->wave_cursor < r->wave.frameCount || !fft_settled()) {
         // Process audio chunks
         size_t chunk_size = r->wave.sampleRate/RENDER_FPS;
@@ -486,6 +537,9 @@ int main(int argc, char *argv[])
         // Render to texture
         BeginTextureMode(r->screen);
         ClearBackground(COLOR_BACKGROUND);
+        if (rainbow_bg) {
+            draw_background((Rectangle){0, 0, (float)RENDER_WIDTH, (float)RENDER_HEIGHT}, bg_time);
+        }
         fft_render((Rectangle){0, 0, (float)RENDER_WIDTH, (float)RENDER_HEIGHT}, m);
         EndTextureMode();
 
@@ -498,6 +552,7 @@ int main(int argc, char *argv[])
             return 1;
         }
         UnloadImage(image);
+        bg_time += 1.0f / RENDER_FPS;
     }
 
     // Finish rendering
