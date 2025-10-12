@@ -47,6 +47,44 @@ static const char *circle_fs_source = "#version 330\n"
 "    }\n"
 "}\n";
 
+static const char *lava_fs_source = "#version 330\n"
+"uniform vec2 resolution;\n"
+"uniform float time;\n"
+"\n"
+"vec2 blob(float id) {\n"
+"    float speed = 0.3 + 0.2*id;\n"
+"    float radius = 0.2 + 0.05*id;\n"
+"    float angle = time*speed + id*6.2831853;\n"
+"    return vec2(cos(angle), sin(angle)) * radius + vec2(0.5);\n"
+"}\n"
+"\n"
+"float field(vec2 uv) {\n"
+"    float v = 0.0;\n"
+"    for (int i = 0; i < 4; ++i) {\n"
+"        vec2 b = blob(float(i));\n"
+"        float d = length(uv - b);\n"
+"        v += exp(-pow(d*8.0, 2.0));\n"
+"    }\n"
+"    return v;\n"
+"}\n"
+"\n"
+"vec3 palette(float t) {\n"
+"    return vec3(0.5+0.5*cos(6.2831*(t+vec3(0.0,0.33,0.66))));\n"
+"}\n"
+"\n"
+"out vec4 fragColor;\n"
+"void main() {\n"
+"    vec2 uv = gl_FragCoord.xy / resolution;\n"
+"    float v = field(uv);\n"
+"    float mask = smoothstep(0.5, 0.55, v);\n"
+"    vec3 col = palette(v);\n"
+"    fragColor = vec4(col*mask, mask);\n"
+"}\n";
+
+static Shader lava;
+static int lava_res_loc;
+static int lava_time_loc;
+
 
 
  
@@ -335,6 +373,14 @@ static void draw_background(Rectangle boundary, float t)
                            (int)boundary.width, (int)boundary.height,
                            top, bottom);
 }
+static void draw_lava_background(Rectangle boundary, float t)
+{
+    SetShaderValue(lava, lava_res_loc, (float[2]){ boundary.width, boundary.height }, SHADER_UNIFORM_VEC2);
+    SetShaderValue(lava, lava_time_loc, (float[1]){ t }, SHADER_UNIFORM_FLOAT);
+    BeginShaderMode(lava);
+    DrawRectangleRec(boundary, WHITE);
+    EndShaderMode();
+}
 
 static void fft_render(Rectangle boundary, size_t m)
 {
@@ -448,20 +494,25 @@ static void print_help(const char *progname)
 int main(int argc, char *argv[])
 {
     bool rainbow_bg = false;
+    bool lava_bg = false;
     const char *input_audio_file = NULL;
     const char *output_video_file = NULL;
 
     /* Parse command‑line options */
     static const struct option long_opts[] = {
         {"rainbow-bg", no_argument, 0, 'r'},
+        {"lava",       no_argument, 0, 'l'},
         {"help",       no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
     int opt;
-    while ((opt = getopt_long(argc, argv, "rh", long_opts, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "rhl", long_opts, NULL)) != -1) {
         switch (opt) {
         case 'r':
             rainbow_bg = true;
+            break;
+        case 'l':
+            lava_bg = true;
             break;
         case 'h':
             print_help(argv[0]);
@@ -495,6 +546,9 @@ int main(int argc, char *argv[])
     r->circle = LoadShaderFromMemory(NULL, circle_fs_source);
     r->circle_radius_location = GetShaderLocation(r->circle, "radius");
     r->circle_power_location = GetShaderLocation(r->circle, "power");
+    lava = LoadShaderFromMemory(NULL, lava_fs_source);
+    lava_res_loc = GetShaderLocation(lava, "resolution");
+    lava_time_loc = GetShaderLocation(lava, "time");
 
     r->screen = LoadRenderTexture(RENDER_WIDTH, RENDER_HEIGHT);
 
@@ -537,8 +591,13 @@ int main(int argc, char *argv[])
         // Render to texture
         BeginTextureMode(r->screen);
         ClearBackground(COLOR_BACKGROUND);
+        /* Render rainbow background first (if enabled) */
         if (rainbow_bg) {
             draw_background((Rectangle){0, 0, (float)RENDER_WIDTH, (float)RENDER_HEIGHT}, bg_time);
+        }
+        /* Render lava background on top (if enabled) */
+        if (lava_bg) {
+            draw_lava_background((Rectangle){0, 0, (float)RENDER_WIDTH, (float)RENDER_HEIGHT}, bg_time);
         }
         fft_render((Rectangle){0, 0, (float)RENDER_WIDTH, (float)RENDER_HEIGHT}, m);
         EndTextureMode();
@@ -565,6 +624,7 @@ int main(int argc, char *argv[])
     UnloadWave(r->wave);
     UnloadWaveSamples(r->wave_samples);
     UnloadShader(r->circle);
+    UnloadShader(lava);
     UnloadRenderTexture(r->screen);
     CloseAudioDevice();
     CloseWindow();
