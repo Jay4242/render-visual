@@ -48,7 +48,7 @@ static const char *circle_fs_source = "#version 330\n"
 
 
 
-#define GLSL_VERSION 330
+ 
 
 #define FFT_SIZE (1<<13)
 
