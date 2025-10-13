@@ -17,6 +17,7 @@
 
 #include <raylib.h>
 #include <rlgl.h>
+static void fft_render_mirror(Rectangle boundary, size_t m);
 
 static const char *circle_fs_source = "#version 330\n"
 "\n"
@@ -483,10 +484,12 @@ static void fft_push(float frame)
 static void print_help(const char *progname)
 {
     fprintf(stderr,
-        "Usage: %s [--rainbow-bg] <input_audio_file> <output_video_file>\n"
+        "Usage: %s [--rainbow-bg] [--mirror] <input_audio_file> <output_video_file>\n"
         "\n"
         "Options:\n"
         "  --rainbow-bg   Enable rainbow background animation.\n"
+        "  --mirror       Enable mirrored bar effect.\n"
+        "  --lava         Enable lava background animation.\n"
         "  -h, --help    Show this help message.\n",
         progname);
 }
@@ -495,6 +498,7 @@ int main(int argc, char *argv[])
 {
     bool rainbow_bg = false;
     bool lava_bg = false;
+    bool mirror = false;
     const char *input_audio_file = NULL;
     const char *output_video_file = NULL;
 
@@ -502,17 +506,21 @@ int main(int argc, char *argv[])
     static const struct option long_opts[] = {
         {"rainbow-bg", no_argument, 0, 'r'},
         {"lava",       no_argument, 0, 'l'},
+        {"mirror",     no_argument, 0, 'm'},
         {"help",       no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
     int opt;
-    while ((opt = getopt_long(argc, argv, "rhl", long_opts, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "rhlm", long_opts, NULL)) != -1) {
         switch (opt) {
         case 'r':
             rainbow_bg = true;
             break;
         case 'l':
             lava_bg = true;
+            break;
+        case 'm':
+            mirror = true;
             break;
         case 'h':
             print_help(argv[0]);
@@ -600,6 +608,9 @@ int main(int argc, char *argv[])
             draw_lava_background((Rectangle){0, 0, (float)RENDER_WIDTH, (float)RENDER_HEIGHT}, bg_time);
         }
         fft_render((Rectangle){0, 0, (float)RENDER_WIDTH, (float)RENDER_HEIGHT}, m);
+        if (mirror) {
+            fft_render_mirror((Rectangle){0, 0, (float)RENDER_WIDTH, (float)RENDER_HEIGHT}, m);
+        }
         EndTextureMode();
 
         // Send frame to FFmpeg
@@ -631,4 +642,100 @@ int main(int argc, char *argv[])
     free(r);
 
     return 0;
+}
+
+/* Mirror version of fft_render: draws bars from the top, reversed horizontally */
+static void fft_render_mirror(Rectangle boundary, size_t m)
+{
+    // Width of a single bar
+    float cell_width = boundary.width / m;
+
+    // Global color parameters (same as in fft_render)
+    float saturation = 0.75f;
+    float value = 1.0f;
+
+    // Display the Bars (mirrored horizontally, drawing from top)
+    for (size_t i = 0; i < m; ++i) {
+        float t = r->out_smooth[i];
+        float hue = (float)i / m;
+        Color color = ColorFromHSV(hue * 360, saturation, value);
+        float x_center = boundary.x + (m - 1 - i) * cell_width + cell_width / 2;
+        Vector2 startPos = {
+            x_center,
+            boundary.y,
+        };
+        Vector2 endPos = {
+            x_center,
+            boundary.y + boundary.height * 2 / 3 * t,
+        };
+        float thick = cell_width / 3 * sqrtf(t);
+        DrawLineEx(startPos, endPos, thick, color);
+    }
+
+    // Texture for smears and circles
+    Texture2D texture = { rlGetTextureIdDefault(), 1, 1, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
+
+    // Display the Smears (mirrored)
+    SetShaderValue(r->circle, r->circle_radius_location, (float[1]){ 0.3f }, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(r->circle, r->circle_power_location, (float[1]){ 3.0f }, SHADER_UNIFORM_FLOAT);
+    BeginShaderMode(r->circle);
+    for (size_t i = 0; i < m; ++i) {
+        float start = r->out_smear[i];
+        float end = r->out_smooth[i];
+        float hue = (float)i / m;
+        Color color = ColorFromHSV(hue * 360, saturation, value);
+        float x_center = boundary.x + (m - 1 - i) * cell_width + cell_width / 2;
+        Vector2 startPos = {
+            x_center,
+            boundary.y + boundary.height * 2 / 3 * start,
+        };
+        Vector2 endPos = {
+            x_center,
+            boundary.y + boundary.height * 2 / 3 * end,
+        };
+        float radius = cell_width * 3 * sqrtf(end);
+        Vector2 origin = {0};
+        if (endPos.y >= startPos.y) {
+            Rectangle dest = {
+                .x = startPos.x - radius/2,
+                .y = startPos.y,
+                .width = radius,
+                .height = endPos.y - startPos.y
+            };
+            Rectangle source = {0, 0, 1, 0.5};
+            DrawTexturePro(texture, source, dest, origin, 0, color);
+        } else {
+            Rectangle dest = {
+                .x = endPos.x - radius/2,
+                .y = endPos.y,
+                .width = radius,
+                .height = startPos.y - endPos.y
+            };
+            Rectangle source = {0, 0.5, 1, 0.5};
+            DrawTexturePro(texture, source, dest, origin, 0, color);
+        }
+    }
+    EndShaderMode();
+
+    // Display the Circles (mirrored)
+    SetShaderValue(r->circle, r->circle_radius_location, (float[1]){ 0.07f }, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(r->circle, r->circle_power_location, (float[1]){ 5.0f }, SHADER_UNIFORM_FLOAT);
+    BeginShaderMode(r->circle);
+    for (size_t i = 0; i < m; ++i) {
+        float t = r->out_smooth[i];
+        float hue = (float)i / m;
+        Color color = ColorFromHSV(hue * 360, saturation, value);
+        float x_center = boundary.x + (m - 1 - i) * cell_width + cell_width / 2;
+        Vector2 center = {
+            x_center,
+            boundary.y + boundary.height * 2 / 3 * t,
+        };
+        float radius = cell_width * 6 * sqrtf(t);
+        Vector2 position = {
+            .x = center.x - radius,
+            .y = center.y - radius,
+        };
+        DrawTextureEx(texture, position, 0, 2*radius, color);
+    }
+    EndShaderMode();
 }
