@@ -2,6 +2,8 @@
 
 A minimal command‑line renderer extracted from the **Musializer** project. It reads an audio file, performs an FFT‑based visualisation and streams the frames to FFmpeg to produce a video file.
 
+![screenshot.jpg](screenshot.jpg)
+
 ## Dependencies (Linux)
 
 - **raylib** (development headers) – provides the graphics/audio API.  
