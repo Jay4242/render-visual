@@ -27,7 +27,7 @@ The `Makefile` compiles `render-visual.c` into the `render-visual` executable.
 ## Usage
 
 ```bash
-./render-visual [--rainbow-bg] [--lava] <input_audio_file> <output_video_file>
+./render-visual [--rainbow-bg] [--lava] [--mirror] <input_audio_file> <output_video_file>
 ```
 
 Example:
@@ -39,6 +39,7 @@ Example:
 Options:
   --rainbow-bg   Enable rainbow background animation.
   --lava         Enable lava background animation.
+  --mirror       Enable mirrored bar effect.
 
 The program will render the visualisation at 30 FPS, and encode the result with FFmpeg (using H.264 video and AAC audio).
 
