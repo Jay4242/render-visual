@@ -53,15 +53,18 @@ static const char *lava_fs_source = "#version 330\n"
 "uniform float time;\n"
 "\n"
 "vec2 blob(float id) {\n"
-"    float speed = 0.3 + 0.2*id;\n"
-"    float radius = 0.2 + 0.05*id;\n"
-"    float angle = time*speed + id*6.2831853;\n"
+"    // Add slight randomness to speed, radius, and angle for a more organic effect\n"
+"    float baseSpeed = 0.3 + 0.2*id;\n"
+"    float speed = baseSpeed + 0.05 * sin(time * 0.7 + id);\n"
+"    float baseRadius = 0.2 + 0.05*id;\n"
+"    float radius = baseRadius + 0.02 * sin(time * 1.3 + id * 2.0);\n"
+"    float angle = time*speed + id*6.2831853 + 0.3 * sin(time * 1.1 + id);\n"
 "    return vec2(cos(angle), sin(angle)) * radius + vec2(0.5);\n"
 "}\n"
 "\n"
 "float field(vec2 uv) {\n"
 "    float v = 0.0;\n"
-"    for (int i = 0; i < 4; ++i) {\n"
+"    for (int i = 0; i < 10; ++i) {\n"
 "        vec2 b = blob(float(i));\n"
 "        float d = length(uv - b);\n"
 "        v += exp(-pow(d*8.0, 2.0));\n"
@@ -257,6 +260,9 @@ typedef struct {
     float *wave_samples;
     size_t wave_cursor;
     FFMPEG *ffmpeg;
+    // Waveform visualizer
+    float *waveform;
+    size_t waveform_pos;
 
     // FFT Analyzer
     float in_raw[FFT_SIZE];
@@ -268,6 +274,8 @@ typedef struct {
 } Renderer;
 
 static Renderer *r = NULL;
+int render_width = RENDER_WIDTH;
+int render_height = RENDER_HEIGHT;
 
 static bool fft_settled(void)
 {
@@ -373,6 +381,22 @@ static void draw_background(Rectangle boundary, float t)
     DrawRectangleGradientV((int)boundary.x, (int)boundary.y,
                            (int)boundary.width, (int)boundary.height,
                            top, bottom);
+}
+static void draw_waveform(Rectangle boundary, float t)
+{
+    (void)t; // suppress unused parameter warning
+    // Draw the stored waveform as a line strip.
+    // Scale samples (assumed in range [-1,1]) to half the height.
+    float half_h = boundary.height * 0.5f;
+    Vector2 *points = malloc(sizeof(Vector2) * render_width);
+    for (size_t i = 0; i < (size_t)render_width; ++i) {
+        size_t idx = (r->waveform_pos + i) % (size_t)render_width;
+        float sample = r->waveform[idx];
+        points[i].x = boundary.x + (float)i;
+        points[i].y = boundary.y + half_h - sample * half_h;
+    }
+    DrawLineStrip(points, render_width, WHITE);
+    free(points);
 }
 static void draw_lava_background(Rectangle boundary, float t)
 {
@@ -484,12 +508,14 @@ static void fft_push(float frame)
 static void print_help(const char *progname)
 {
     fprintf(stderr,
-        "Usage: %s [--rainbow-bg] [--mirror] <input_audio_file> <output_video_file>\n"
+        "Usage: %s [--rainbow-bg] [--lava] [--mirror] [--vert] <input_audio_file> <output_video_file>\n"
         "\n"
         "Options:\n"
         "  --rainbow-bg   Enable rainbow background animation.\n"
-        "  --mirror       Enable mirrored bar effect.\n"
         "  --lava         Enable lava background animation.\n"
+        "  --mirror       Enable mirrored bar effect.\n"
+        "  --vert         Render video in vertical orientation (swap width/height).\n"
+        "  --waveform     Enable waveform/oscilloscope visualizer.\n"
         "  -h, --help    Show this help message.\n",
         progname);
 }
@@ -499,6 +525,8 @@ int main(int argc, char *argv[])
     bool rainbow_bg = false;
     bool lava_bg = false;
     bool mirror = false;
+    bool waveform = false;
+    bool vertical = false;
     const char *input_audio_file = NULL;
     const char *output_video_file = NULL;
 
@@ -507,11 +535,13 @@ int main(int argc, char *argv[])
         {"rainbow-bg", no_argument, 0, 'r'},
         {"lava",       no_argument, 0, 'l'},
         {"mirror",     no_argument, 0, 'm'},
+        {"waveform",   no_argument, 0, 'w'},
+        {"vert",       no_argument, 0, 'v'},
         {"help",       no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
     int opt;
-    while ((opt = getopt_long(argc, argv, "rhlm", long_opts, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "rhlmv", long_opts, NULL)) != -1) {
         switch (opt) {
         case 'r':
             rainbow_bg = true;
@@ -521,6 +551,12 @@ int main(int argc, char *argv[])
             break;
         case 'm':
             mirror = true;
+            break;
+        case 'w':
+            waveform = true;
+            break;
+        case 'v':
+            vertical = true;
             break;
         case 'h':
             print_help(argv[0]);
@@ -540,12 +576,23 @@ int main(int argc, char *argv[])
     input_audio_file  = argv[optind];
     output_video_file = argv[optind + 1];
 
+    /* Determine render dimensions, possibly swapping for vertical mode */
+    int render_width = RENDER_WIDTH;
+    int render_height = RENDER_HEIGHT;
+    if (vertical) {
+        int tmp = render_width;
+        render_width = render_height;
+        render_height = tmp;
+    }
+
     r = malloc(sizeof(*r));
     assert(r != NULL && "Buy more RAM lol");
     memset(r, 0, sizeof(*r));
+    r->waveform = calloc(render_width, sizeof(float));
+    r->waveform_pos = 0;
 
     SetConfigFlags(FLAG_WINDOW_HIDDEN);
-    InitWindow(RENDER_WIDTH, RENDER_HEIGHT, "Musializer Renderer");
+    InitWindow(render_width, render_height, "Musializer Renderer");
     InitAudioDevice();
 
     // Load assets
@@ -558,7 +605,7 @@ int main(int argc, char *argv[])
     lava_res_loc = GetShaderLocation(lava, "resolution");
     lava_time_loc = GetShaderLocation(lava, "time");
 
-    r->screen = LoadRenderTexture(RENDER_WIDTH, RENDER_HEIGHT);
+    r->screen = LoadRenderTexture(render_width, render_height);
 
     // Load audio file
     r->wave = LoadWave(input_audio_file);
@@ -570,7 +617,7 @@ int main(int argc, char *argv[])
     r->wave_cursor = 0;
 
     // Start FFmpeg rendering
-    r->ffmpeg = ffmpeg_start_rendering(output_video_file, RENDER_WIDTH, RENDER_HEIGHT, RENDER_FPS, input_audio_file);
+    r->ffmpeg = ffmpeg_start_rendering(output_video_file, render_width, render_height, RENDER_FPS, input_audio_file);
     if (r->ffmpeg == NULL) {
         fprintf(stderr, "Error: Could not start FFmpeg rendering\n");
         return 1;
@@ -585,11 +632,17 @@ int main(int argc, char *argv[])
         size_t chunk_size = r->wave.sampleRate/RENDER_FPS;
         float *fs = (float*)r->wave_samples;
         for (size_t i = 0; i < chunk_size; ++i) {
+            float sample = 0.0f;
             if (r->wave_cursor < r->wave.frameCount) {
-                fft_push(fs[r->wave_cursor*r->wave.channels + 0]);
+                sample = fs[r->wave_cursor*r->wave.channels + 0];
+                fft_push(sample);
             } else {
                 fft_push(0);
             }
+            // Store sample for waveform visualizer
+            r->waveform[r->waveform_pos] = sample;
+            r->waveform_pos = (r->waveform_pos + 1) % render_width;
+
             r->wave_cursor += 1;
         }
 
@@ -601,15 +654,18 @@ int main(int argc, char *argv[])
         ClearBackground(COLOR_BACKGROUND);
         /* Render rainbow background first (if enabled) */
         if (rainbow_bg) {
-            draw_background((Rectangle){0, 0, (float)RENDER_WIDTH, (float)RENDER_HEIGHT}, bg_time);
+            draw_background((Rectangle){0, 0, (float)render_width, (float)render_height}, bg_time);
+        }
+        if (waveform) {
+            draw_waveform((Rectangle){0, 0, (float)render_width, (float)render_height}, bg_time);
         }
         /* Render lava background on top (if enabled) */
         if (lava_bg) {
-            draw_lava_background((Rectangle){0, 0, (float)RENDER_WIDTH, (float)RENDER_HEIGHT}, bg_time);
+            draw_lava_background((Rectangle){0, 0, (float)render_width, (float)render_height}, bg_time);
         }
-        fft_render((Rectangle){0, 0, (float)RENDER_WIDTH, (float)RENDER_HEIGHT}, m);
+        fft_render((Rectangle){0, 0, (float)render_width, (float)render_height}, m);
         if (mirror) {
-            fft_render_mirror((Rectangle){0, 0, (float)RENDER_WIDTH, (float)RENDER_HEIGHT}, m);
+            fft_render_mirror((Rectangle){0, 0, (float)render_width, (float)render_height}, m);
         }
         EndTextureMode();
 
@@ -639,6 +695,7 @@ int main(int argc, char *argv[])
     UnloadRenderTexture(r->screen);
     CloseAudioDevice();
     CloseWindow();
+    free(r->waveform);
     free(r);
 
     return 0;
