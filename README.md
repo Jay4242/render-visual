@@ -15,7 +15,7 @@ Install the required packages on Debian/Ubuntu:
 
 ```bash
 sudo apt update
-sudo apt install build-essential libraylib-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev ffmpeg
+sudo apt install build-essential libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev ffmpeg
 ```
 
 ## Build
